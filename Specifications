@@ -1,0 +1,839 @@
+# AI Chief of Staff Web App — Consolidated Product & Technical Specification
+
+> NOTE: The behavioral Charter (role, lanes, ambiguity, preferences, non-hallucination) is defined in a **separate document** and should be treated as the “constitution” for the agent. This spec defines the **product, architecture, workflows, UI, security, and integration** details for implementation.
+
+---
+
+## 1. Purpose
+
+Build a **mobile-friendly, authenticated web-based AI Chief of Staff** with two initial operating lanes:
+
+1. **Daily Executive Planning and Administrative Triage** (Lane A)  
+2. **Topic Development and Episode Preparation** (Lane B)
+
+The system should:
+
+- Use a **web/app console**, not a chat log, as the primary interface.
+- Support **fast, low-friction mobile usage**, with minimal required typing.
+- Integrate with **Gmail, Google Calendar, Google Tasks**, and existing research pipelines.
+- Integrate **Perplexity API** as the research & web search layer.
+- Use **n8n** for workflow orchestration.
+- Use **multi-model routing** (Gemini + Claude + optional OpenAI) to reduce token costs.
+- Require **Google Sign-In** and restrict access to an allowlist of identities.
+
+---
+
+## 2. Available Stack
+
+- **n8n**
+- **Claude**
+- **Gemini**
+- **OpenAI**
+- **Perplexity API** (Search + web research)
+- **Cloudflare** (Pages, Workers, optional Access)
+- **GitHub** (source control)
+- **Gmail, Google Calendar, Google Tasks** APIs
+
+---
+
+## 3. High-Level Architecture
+
+### 3.1 Components
+
+- **Frontend**  
+  - Mobile-first SPA or lightweight web app  
+  - Hosted on **Cloudflare Pages**  
+
+- **Backend / API Gateway**  
+  - **Cloudflare Workers**  
+  - Handles auth/session, API routes, model routing calls to n8n, Perplexity, and LLMs  
+
+- **Workflow Engine**  
+  - **n8n** (self-hosted on VPS)  
+  - Orchestrates Gmail, Calendar, Tasks, research, planning, topic workflows  
+
+- **LLM Routing Layer**  
+  - Implemented in a Worker or n8n subflows  
+  - Routes between Gemini (cheap) and Claude (premium) and optionally OpenAI  
+
+- **Research Layer**  
+  - **Perplexity API** for web search and current-data retrieval  
+
+- **Persistence Layer**  
+  - DB (Postgres, SQLite, or similar) for users, preferences, tasks, topics, reports, activity, etc.  
+
+- **Auth & Access Control**  
+  - **Google Sign-In (OAuth)**  
+  - Optional **Cloudflare Access** in front of app for additional restriction  
+
+- **Source Control & CI/CD**  
+  - GitHub + CI deploy to Cloudflare Pages & Workers  
+
+### 3.2 Design Principles
+
+- **Structured workflows** > free-form chat.
+- **Mobile-first**: design for 375px width first.
+- **Token minimization**:
+  - Short, task-specific prompts.
+  - Persistent state in DB, not prompt.
+  - Cheap model for routine work; expensive model only for high-value reasoning.
+  - Perplexity only when fresh web data matters.
+- **Separation of concerns**:
+  - Auth vs data access.
+  - Research vs synthesis.
+  - UI vs workflows.
+
+---
+
+## 4. Core UX Concept
+
+The app is a **Chief-of-Staff console**, not a chatbot.
+
+- **Most interactions** use:
+  - taps, swipes, selects, approvals, deferrals, reordering, and short comments.
+- **Typing** is optional and reserved for:
+  - quick comments,
+  - initial reactions,
+  - clarifications, and
+  - deeper instructions.
+
+### 4.1 Main Navigation (Mobile-first)
+
+Use a bottom navigation bar with four sections:
+
+1. **Today**  
+2. **Topics**  
+3. **Preferences**  
+4. **Activity**
+
+On desktop, the same sections can be a sidebar.
+
+---
+
+## 5. Screens
+
+### 5.1 Today Screen (Lane A)
+
+**Purpose**: Daily planning & administrative triage.
+
+**Blocks**:
+- Today’s date & high-level summary.
+- Calendar overview (today).
+- Tasks needing attention.
+- Emails needing response/decision.
+- Suggested priorities.
+- Proposed time blocks.
+- “Questions for you” card.
+- Preference-learning prompts (when applicable).
+
+**Interactions**:
+- Approve / edit / reject proposed time blocks.
+- Mark tasks:
+  - Must do today
+  - Can wait
+  - Defer
+- Quick select duration: chips (15/30/45/60/90m/custom).
+- Toggle urgency.
+- Reorder priorities via drag-and-drop/reorder handles.
+- Tap to mark email as:
+  - Needs response
+  - FYI only
+  - Ignore/archive
+- Confirm or refine inferred scheduling/priority preferences.
+- Trigger re-run planning after changes.
+
+**Mobile UI patterns**:
+- Single-column stacked cards.
+- Swipe actions (optional) for deferring/archive.
+- Sticky bottom bar for “Approve plan” / “Update plan”.
+- Bottom sheets for editing blocks.
+
+---
+
+### 5.2 Topics Screen (Lane B)
+
+**Purpose**: Topic → Episode pipeline.
+
+**Blocks**:
+- Topic shortlist (cards).
+- Topic rank and rationale.
+- Topic statuses:
+  - New
+  - In research
+  - Ready for outline
+  - Outline ready
+  - Speaking notes ready
+- Research progress indicators.
+- Preliminary report cards.
+- Outline / speaking notes view.
+- Preference-learning prompts for editorial choices.
+
+**Interactions**:
+- Mark topic:
+  - Pursue now
+  - Later
+  - Discard
+  - Needs more research
+- Reorder topics.
+- Add quick notes:
+  - “My angle”
+  - “Main questions”
+- Trigger deeper research.
+- Approve / refine outline.
+- Approve / refine speaking notes.
+- Confirm / refine inferred editorial preferences.
+
+**Mobile UI patterns**:
+- Topic cards with:
+  - Title
+  - Score / momentum
+  - Short “why it matters”
+  - Action buttons.
+- Tabs or segmented control for:
+  - Shortlist
+  - Research
+  - Outlines
+  - Notes
+
+---
+
+### 5.3 Preferences Screen
+
+**Purpose**: Manage **confirmed general preferences**.
+
+**Blocks**:
+- Active preferences, grouped by domain:
+  - Scheduling
+  - Email triage
+  - Task prioritization
+  - Topic selection
+  - Research depth
+  - Speaking-note style
+  - Escalation preferences
+  - Interaction style
+- Proposed preferences (awaiting confirmation).
+- Preferences flagged for review (misalignment).
+
+**Interactions**:
+- Confirm preference.
+- Refine (edit statement).
+- Reject preference.
+- Mark as outdated.
+- Add exceptions.
+- View example context leading to that preference.
+
+**Display status**:
+- Proposed
+- Confirmed
+- Under review
+- Deprecated
+
+---
+
+### 5.4 Activity Screen
+
+**Purpose**: Transparency and auditability.
+
+**Blocks**:
+- Recent workflow runs (Lane A & B).
+- Approvals and major decisions.
+- Model usage summaries (high-level).
+- Errors/failures and retries.
+- Preference changes.
+- Perplexity research invocations (high-level).
+
+**Interactions**:
+- Filter by lane, date, outcome type.
+- View workflow run details.
+- Retry failed workflow (where safe).
+- Inspect preference changes.
+
+---
+
+## 6. Workflows
+
+### 6.1 Workflow A — Daily Executive Planning
+
+**Trigger**:
+- Cron (e.g., each morning).
+- On-demand from Today screen.
+
+**Inputs**:
+- Gmail (metadata, limited body where needed).
+- Google Calendar events (today + near future).
+- Google Tasks (overdue, due today, important, unscheduled).
+- Confirmed preferences (scheduling, priority rules).
+- User time zone.
+- Day-of-week context.
+
+**Flow**:
+
+1. **Data Ingest** (n8n)
+   - Pull today’s calendar.
+   - Pull tasks.
+   - Pull candidates emails needing action.
+
+2. **Deterministic Preprocessing**
+   - Identify fixed commitments.
+   - Find overdue tasks.
+   - Identify unscheduled important tasks.
+   - Map raw items into internal entities.
+
+3. **Classification / Triage (Cheap model)**
+   - Use Gemini/cheap model to:
+     - classify emails (needs response/decision/FYI/ignore),
+     - suggest urgency for tasks,
+     - identify likely priority.
+
+4. **Preference Retrieval**
+   - Retrieve relevant confirmed preferences:
+     - morning content rules,
+     - meeting tolerance in mornings,
+     - how to treat overdue admin tasks,
+     - etc.
+
+5. **Ambiguity Detection**
+   - Determine where choices remain ambiguous:
+     - multiple tasks competing for a slot,
+     - unclear urgency,
+     - unclear re-scheduling rules.
+
+6. **Plan Synthesis (Premium model)**
+   - Use Claude to:
+     - generate a concise morning executive brief,
+     - propose time blocks (preserving morning for content where possible),
+     - highlight trade-offs,
+     - note ambiguous spots needing user input.
+
+7. **UI Presentation**
+   - Send brief + proposals to frontend as structured JSON.
+
+8. **User Interaction**
+   - User:
+     - answers minimal clarifying questions via UI controls,
+     - adjusts priorities and durations,
+     - approves/edits/rejects time blocks.
+
+9. **Finalize Plan (Premium model, small prompt)**
+   - Use Claude to:
+     - incorporate user changes,
+     - finalize schedule,
+     - optionally distill new preferences.
+
+10. **Preference Learning**
+    - If user decisions reveal a general rule:
+      - draft preference statement,
+      - present in UI for confirm/refine/reject,
+      - store confirmed preference.
+
+11. **Execution**
+    - Update Google Calendar (only after approval).
+    - Optionally update Google Tasks.
+
+12. **Logging**
+    - Record WorkflowRun, ActivityLog, model usage.
+
+---
+
+### 6.2 Workflow B — Topic Development
+
+**Trigger**:
+- Scheduled ingestion from existing scripts.
+- Manual refresh on Topics screen.
+- Per-topic actions (e.g. “deeper research”).
+
+**Inputs**:
+- Internal newsletter summarizer output.
+- Public discourse curation output.
+- Confirmed editorial preferences.
+- Perplexity API for fresh web context.
+- User initial reactions and follow-ups.
+
+**Flow**:
+
+1. **Ingest Candidates**
+   - n8n loads new topic candidates from internal pipelines.
+
+2. **Cluster / Deduplicate (Cheap model)**
+   - Cluster similar topics.
+   - Deduplicate.
+
+3. **Ranking Preparation (Cheap model)**
+   - Score topics on:
+     - relevance,
+     - novelty,
+     - timeliness,
+     - potential fit with user’s work.
+
+4. **Preference Retrieval**
+   - Fetch editorial preferences (e.g., about novelty vs explainer content).
+
+5. **Shortlist Creation (Cheap or premium as needed)**
+   - Generate structured shortlist with rationale.
+   - Do *not* yet call Perplexity for every topic; mark which topics might need fresh research.
+
+6. **UI Presentation**
+   - Show topics with:
+     - title,
+     - score,
+     - short “why it matters”,
+     - recommended bucket (pursue / later / discard).
+
+7. **User Input**
+   - User:
+     - marks topics with quick actions,
+     - adds short comments or angles,
+     - selects which topics to deepen.
+
+8. **Preference Learning**
+   - Infer editorial preferences from repeated choices.
+   - Present inferred preferences for confirmation/refinement.
+   - Store confirmed preferences.
+
+9. **Research (Perplexity)**
+   - For selected topics:
+     - call Perplexity Search API for fresh web info.
+     - optionally fetch specific URLs for evidence.
+   - Store evidence sets.
+
+10. **Preliminary Report (Premium model)**
+    - Use Claude to:
+      - synthesize evidence into a preliminary report,
+      - articulate working thesis,
+      - list counterarguments and uncertainties.
+
+11. **User Review & Angle Refinement**
+    - User reviews report,
+    - provides clarifications via short comments or options,
+    - possibly reorients angle.
+
+12. **Outline & Speaking Notes (Premium model)**
+    - Use Claude to:
+      - generate episode outline,
+      - generate speaking notes tailored for oral delivery.
+
+13. **Logging**
+    - Store ResearchReport, Outline, SpeakingNotes, ActivityLog, WorkflowRun.
+
+---
+
+## 7. Perplexity API Integration
+
+**Role**: Dedicated live web research layer.
+
+**Use only when**:
+- topic is current/events-driven,
+- more evidence is needed for serious commentary,
+- user explicitly triggers deeper research.
+
+**Integration points**:
+- topic ranking step (optional “momentum” check),
+- preliminary report evidence gathering,
+- follow-up “latest developments” before recording.
+
+**Notes**:
+- Call **Perplexity Search API** and/or similar endpoints.
+- Cache results per-topic for a reasonable window.
+- Do not use Perplexity for every interaction; treat it as a targeted tool.
+
+---
+
+## 8. Model Routing & Cost Control
+
+### 8.1 Model Roles
+
+- **Gemini / Cheap Model**:
+  - classification,
+  - extraction,
+  - clustering,
+  - deduplication,
+  - short bullet summaries,
+  - email/task/topic tagging,
+  - preference candidate drafting,
+  - compact transform tasks.
+
+- **Claude**:
+  - executive brief synthesis,
+  - resolving ambiguity (with preference retrieval),
+  - preference distillation and misalignment analysis,
+  - topic framing and thesis formation,
+  - outline generation,
+  - speaking notes,
+  - complex trade-off explanation.
+
+- **OpenAI (optional)**:
+  - specialized tasks only if clearly justified,
+  - or fallback / evaluation.
+
+### 8.2 Routing Rules
+
+- Use deterministic logic before models.
+- Use cheap model by default; escalate only when:
+  - complex weighing of trade-offs,
+  - ambiguity/resolution involving preferences,
+  - synthesizing long research reports,
+  - generating outlines/notes.
+- Parameterize maximum tokens per call.
+- Track calls and tokens by model and workflow.
+
+### 8.3 Cost-Reduction Techniques
+
+- Use **structured UI** instead of chat back-and-forth.
+- Persist state in DB instead of re-sending in prompt.
+- Keep prompts narrow and step-specific.
+- Use retrieval (preference & context) to add only relevant snippets.
+- Batch operations (e.g., classify multiple emails in one call).
+- Cache stable artifacts (Charter summary, preference snapshots, topic summaries).
+- Implement daily or per-workflow cost caps.
+
+---
+
+## 9. Authentication & Security
+
+### 9.1 Authentication Method
+
+- **Google Sign-In / Google OAuth** for app authentication.
+- Restrict login to **allowlisted Google account(s)**.
+- Use **httpOnly, Secure cookies** for sessions.
+- Avoid storing tokens in `localStorage`.
+
+**Cloudflare integration option**:
+- Use **Cloudflare Access** with Google as Identity Provider to gate access to the app domain.
+- Then use application-level sessions internally.
+
+### 9.2 Access Model
+
+**MVP**: Single-user private app.
+
+- Only the owner’s Google account is allowed.
+- Future: multi-user with roles (owner/admin/viewer) if needed.
+
+### 9.3 Session Management
+
+- Implement standard OAuth web flow.
+- Backend validates auth code with Google.
+- Backend creates session and sets secure cookie.
+- Frontend uses only app session, not raw Google tokens.
+- Support logout and session expiration.
+
+### 9.4 Authorization
+
+- All API routes require authenticated session.
+- Enforce that all data is scoped to the logged-in user’s id.
+- No anonymous access to UI or APIs.
+
+### 9.5 Google OAuth vs Google APIs
+
+Keep these distinct:
+
+- **Auth**: Google Sign-In for identity.
+- **Data access**: Gmail / Calendar / Tasks via OAuth scopes as required.
+
+Use separate config / token flows as appropriate.
+
+### 9.6 n8n Security
+
+- No unauthenticated public n8n webhooks.
+- Frontend → Backend → n8n pattern:
+  - Backend validates session & user,
+  - Backend calls internal or signed n8n endpoint.
+- n8n trusts only backend-signed requests.
+
+### 9.7 Secret Management
+
+Store secrets only in server-side secret stores:
+
+- Google OAuth client secret.
+- Perplexity API key.
+- Claude, Gemini, OpenAI keys.
+- n8n secrets.
+- Database credentials.
+- Session signing secrets.
+
+**No secrets in frontend** and none in GitHub.
+
+### 9.8 Audit & Logging
+
+Log:
+
+- logins and failures,
+- session creation/expiration,
+- access to protected routes,
+- workflow triggers & completions,
+- approvals,
+- preference updates,
+- Perplexity calls (high-level info),
+- errors.
+
+Include:
+
+- timestamp,
+- user id,
+- action type,
+- route or workflow name,
+- success/failure,
+- correlation id,
+- error message (if any).
+
+---
+
+## 10. Data Model (Entities)
+
+_Names suggestive; exact schema can vary._
+
+### 10.1 User
+
+- id
+- google_sub / email
+- name
+- timezone
+- created_at
+- updated_at
+
+### 10.2 Preference
+
+- id
+- user_id
+- domain
+- statement
+- status (proposed/confirmed/under_review/deprecated)
+- confidence
+- confirmation_date
+- source_event_id
+- examples (JSON)
+- exceptions (JSON)
+- last_used_at
+- review_needed (bool)
+
+### 10.3 DailyPlan
+
+- id
+- user_id
+- date
+- summary
+- priorities (JSON)
+- proposed_blocks (JSON)
+- approved_blocks (JSON)
+- status
+- created_at
+- updated_at
+
+### 10.4 TaskItem
+
+- id
+- user_id
+- external_source (google_tasks, manual, etc.)
+- external_id
+- title
+- notes
+- due_date
+- status
+- urgency
+- estimated_duration
+- scheduled_block_id
+- source_type
+- created_at
+- updated_at
+
+### 10.5 EmailItem
+
+- id
+- user_id
+- external_id / thread_id
+- sender
+- subject
+- classification
+- response_needed (bool)
+- urgency
+- summary
+- action_recommendation
+- created_at
+- updated_at
+
+### 10.6 Topic
+
+- id
+- user_id
+- title
+- source_refs (JSON)
+- cluster_id
+- status
+- score
+- rationale
+- user_interest
+- current_angle
+- report_id
+- outline_id
+- speaking_notes_id
+- created_at
+- updated_at
+
+### 10.7 ResearchReport
+
+- id
+- user_id
+- topic_id
+- version
+- evidence_set (JSON)
+- thesis_candidates (JSON)
+- uncertainties (JSON)
+- report_markdown
+- status
+- created_at
+- updated_at
+
+### 10.8 Outline
+
+- id
+- user_id
+- topic_id
+- structure (JSON/markdown)
+- created_at
+- updated_at
+
+### 10.9 SpeakingNotes
+
+- id
+- user_id
+- topic_id
+- notes_markdown
+- created_at
+- updated_at
+
+### 10.10 WorkflowRun
+
+- id
+- user_id
+- lane (A/B)
+- trigger_type
+- status
+- started_at
+- finished_at
+- model_calls (JSON)
+- estimated_cost
+- error_log
+- created_at
+
+### 10.11 PendingApproval
+
+- id
+- user_id
+- type (schedule, preference, topic, etc.)
+- related_entity_id
+- summary
+- options (JSON)
+- created_at
+- resolved_at
+- resolution
+
+### 10.12 ActivityLog
+
+- id
+- user_id
+- type
+- lane
+- description
+- metadata (JSON)
+- created_at
+
+---
+
+## 11. Frontend/API Endpoints
+
+### Frontend → Backend (Examples)
+
+- `GET /api/today`
+- `POST /api/today/refresh`
+- `POST /api/today/priorities`
+- `POST /api/today/schedule/propose`
+- `POST /api/today/schedule/approve`
+- `POST /api/task/update`
+- `GET /api/topics`
+- `POST /api/topics/refresh`
+- `POST /api/topics/select`
+- `POST /api/topics/comment`
+- `POST /api/topics/research`
+- `GET /api/topics/:id/report`
+- `POST /api/topics/:id/outline`
+- `POST /api/topics/:id/speaking-notes`
+- `GET /api/preferences`
+- `POST /api/preferences/confirm`
+- `POST /api/preferences/refine`
+- `POST /api/preferences/reject`
+- `GET /api/activity`
+
+All must enforce auth and user scoping.
+
+---
+
+## 12. n8n Workflows (Required)
+
+1. Morning planning ingest
+2. Gmail triage
+3. Calendar read + schedule proposal
+4. Tasks ingest + unscheduled detection
+5. Daily plan synthesis
+6. Topic ingest from internal scripts
+7. Topic clustering & ranking
+8. Perplexity research enrichment
+9. Preliminary report generation
+10. Outline generation
+11. Speaking notes generation
+12. Preference confirmation storage
+13. Preference misalignment review
+14. Activity logging
+15. Error handling / retry / dead-letter
+
+---
+
+## 13. Mobile-First UI Requirements
+
+- Design at 375px width first.
+- Single-column main content.
+- Bottom nav bar for main sections.
+- Sticky bottom action bar on key flows (approve plan, save preferences).
+- Touch targets ≥ 44x44 px.
+- Respect reduced-motion preferences.
+- Use cards, chips, segmented controls, bottom sheets.
+- Avoid hover-only behaviors.
+
+---
+
+## 14. Deliverables for Coding Agent
+
+- Frontend web app (Cloudflare-ready).
+- Backend/API gateway (Workers).
+- Auth flows:
+  - Google OAuth sign-in,
+  - session cookie management,
+  - logout.
+- Route protection & user scoping.
+- n8n workflow definitions/config.
+- Model routing logic.
+- Perplexity integration.
+- Persistence schema & migrations.
+- Environment variable templates.
+- CI/CD config (GitHub → Cloudflare Pages/Workers/n8n).
+- Logging & basic cost metrics.
+- Documentation (README + brief operator guide).
+
+---
+
+## 15. MVP Success Criteria
+
+The MVP is successful if:
+
+- You can log in via Google, and only you (or your allowlist) can access the app.
+- On mobile, you can:
+  - review the day,
+  - accept/adjust a proposed plan,
+  - handle key tasks & emails,
+  - choose and steer topics,
+  - confirm/refine preferences.
+- The system:
+  - uses Perplexity only for research when needed,
+  - routes cheap vs expensive models sensibly,
+  - keeps prompts short and state in the DB,
+  - keeps operational state and actions auditable.
+
+Everything else (chat UI, multi-user, additional lanes) is optional and can be layered on later.
