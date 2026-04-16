@@ -116,8 +116,10 @@ export async function findPendingEntry(
 
 export async function saveProcessingResult(
   id: string,
-  result: ProcessingResult
+  result: ProcessingResult,
+  embedding: number[]
 ): Promise<void> {
+  const vectorStr = `[${embedding.join(",")}]`;
   await pool.query(
     `UPDATE journal_entry
      SET clean_text = $2,
@@ -127,6 +129,7 @@ export async function saveProcessingResult(
          primary_type = $6,
          primary_type_confidence = $7,
          suggested_actions = $8,
+         embedding = $9::vector,
          processing_status = 'processed'
      WHERE id = $1`,
     [
@@ -138,8 +141,31 @@ export async function saveProcessingResult(
       result.primary_type,
       result.primary_type_confidence,
       JSON.stringify(result.suggested_actions),
+      vectorStr,
     ]
   );
+}
+
+export async function findSimilarEntries(
+  embedding: number[],
+  excludeId: string,
+  limit: number = 5
+): Promise<
+  { id: string; summary: string; tags: string[]; similarity: number }[]
+> {
+  const vectorStr = `[${embedding.join(",")}]`;
+  const { rows } = await pool.query(
+    `SELECT id, summary, tags,
+            1 - (embedding <=> $1::vector) AS similarity
+     FROM journal_entry
+     WHERE processing_status = 'processed'
+       AND id != $2
+       AND embedding IS NOT NULL
+     ORDER BY embedding <=> $1::vector
+     LIMIT $3`,
+    [vectorStr, excludeId, limit]
+  );
+  return rows;
 }
 
 export async function markProcessingError(id: string): Promise<void> {
