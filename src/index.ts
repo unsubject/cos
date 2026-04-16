@@ -1,6 +1,7 @@
 import { migrate } from "./db/migrate";
 import { createBot, startWebhook } from "./bot";
 import { startWorker } from "./worker";
+import { startScheduler } from "./scheduler";
 
 async function main() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -23,6 +24,7 @@ async function main() {
 
   startWebhook(bot, port, webhookSecret);
   startWorker();
+  startScheduler();
 }
 
 main().catch((err) => {
