@@ -1,5 +1,6 @@
 import * as queries from "./db/queries";
 import { processEntry } from "./processor";
+import { generateEmbedding } from "./embeddings";
 
 const POLL_INTERVAL_MS = 30_000;
 const STITCH_WINDOW_MS = 10 * 60 * 1000;
@@ -12,7 +13,8 @@ async function tick(): Promise<void> {
     console.log(`Processing entry ${entry.id}...`);
     try {
       const result = await processEntry(entry.full_text);
-      await queries.saveProcessingResult(entry.id, result);
+      const embedding = await generateEmbedding(result.clean_text);
+      await queries.saveProcessingResult(entry.id, result, embedding);
       console.log(`Processed entry ${entry.id}`);
     } catch (err) {
       console.error(`Error processing entry ${entry.id}:`, err);
