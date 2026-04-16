@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic();
+// maxRetries: SDK respects Retry-After on 429, this gives headroom when the
+// archive worker bursts against the per-minute output-token cap.
+const anthropic = new Anthropic({ maxRetries: 6 });
 
 export interface ArtifactProcessingResult {
-  clean_text: string;
   summary: string;
   excerpt: string;
   tags: string[];
@@ -23,11 +24,6 @@ const SUMMARIZE_TOOL: Anthropic.Tool = {
   input_schema: {
     type: "object" as const,
     properties: {
-      clean_text: {
-        type: "string",
-        description:
-          "The article text normalized: strip residual HTML, Notion export artifacts, collapse whitespace. Preserve structure (paragraphs, headings) and the author's voice.",
-      },
       summary: {
         type: "string",
         description:
@@ -46,10 +42,10 @@ const SUMMARIZE_TOOL: Anthropic.Tool = {
       },
       language: {
         type: "string",
-        description: "ISO 639-1 language code (e.g. 'en', 'th').",
+        description: "ISO 639-1 language code (e.g. 'en', 'zh', 'th').",
       },
     },
-    required: ["clean_text", "summary", "excerpt", "tags", "language"],
+    required: ["summary", "excerpt", "tags", "language"],
   },
 };
 
@@ -104,7 +100,7 @@ export async function analyzeArtifact(
 
   const response = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 4096,
+    max_tokens: 1024,
     system:
       "You are a background processor for a private knowledge base of published articles. Analyze each article to extract structured metadata. Be precise — summaries should capture the core argument, not just restate the title. Tags should be specific and useful for retrieval.",
     messages: [
@@ -131,7 +127,7 @@ export async function extractEntities(
 ): Promise<ExtractedEntity[]> {
   const response = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 2048,
+    max_tokens: 1024,
     system:
       "You extract named entities from published articles. Focus on people, organizations, key concepts/ideas, referenced works (books, papers, articles), and places that are meaningfully discussed — not just mentioned in passing.",
     messages: [

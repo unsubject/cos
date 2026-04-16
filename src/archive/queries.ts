@@ -237,8 +237,8 @@ export async function insertLinkEdge(
 ): Promise<void> {
   await pool.query(
     `INSERT INTO link_edge
-       (source_type, source_id, target_type, target_id, link_type, confidence, explanation)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (user_id, source_type, source_id, target_type, target_id, link_type, confidence, explanation)
+     VALUES ('default', $1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (source_type, source_id, target_type, target_id, link_type) DO NOTHING`,
     [sourceType, sourceId, targetType, targetId, linkType, confidence, explanation]
   );
@@ -431,6 +431,15 @@ export async function findEntitiesByName(
     [pattern]
   );
   return rows;
+}
+
+export async function resetErroredArtifacts(): Promise<number> {
+  const { rowCount } = await pool.query(
+    `UPDATE public_artifact
+     SET processing_status = 'pending'
+     WHERE processing_status = 'error'`
+  );
+  return rowCount ?? 0;
 }
 
 export async function getArtifactStats(): Promise<{
