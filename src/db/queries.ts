@@ -174,3 +174,73 @@ export async function markProcessingError(id: string): Promise<void> {
     [id]
   );
 }
+
+export async function getEntriesForReview(
+  days: number
+): Promise<
+  {
+    id: string;
+    full_text: string;
+    summary: string | null;
+    tags: string[] | null;
+    primary_type: string | null;
+    primary_type_confidence: number | null;
+    suggested_actions: unknown;
+    created_at: Date;
+    channel: string;
+  }[]
+> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const { rows } = await pool.query(
+    `SELECT id, full_text, summary, tags, primary_type,
+            primary_type_confidence, suggested_actions, created_at, channel
+     FROM journal_entry
+     WHERE processing_status = 'processed'
+       AND created_at > $1
+     ORDER BY created_at DESC`,
+    [cutoff]
+  );
+  return rows;
+}
+
+export async function saveReview(
+  reviewDate: string,
+  content: string,
+  contentHtml: string,
+  entryCount: number
+): Promise<string> {
+  const { rows } = await pool.query(
+    `INSERT INTO morning_review (review_date, content, content_html, entry_count)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (review_date) DO UPDATE
+       SET content = EXCLUDED.content,
+           content_html = EXCLUDED.content_html,
+           entry_count = EXCLUDED.entry_count,
+           created_at = now()
+     RETURNING id`,
+    [reviewDate, content, contentHtml, entryCount]
+  );
+  return rows[0].id;
+}
+
+export async function getRecentReviews(
+  limit: number = 20
+): Promise<
+  {
+    id: string;
+    review_date: string;
+    content_html: string;
+    entry_count: number;
+    created_at: Date;
+  }[]
+> {
+  const { rows } = await pool.query(
+    `SELECT id, review_date, content_html, entry_count, created_at
+     FROM morning_review
+     ORDER BY review_date DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}

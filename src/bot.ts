@@ -2,6 +2,8 @@ import { Bot, webhookCallback } from "grammy";
 import { randomUUID } from "crypto";
 import express from "express";
 import { handleMessage } from "./capture";
+import { generateRssFeed } from "./feed";
+import * as queries from "./db/queries";
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
@@ -67,6 +69,18 @@ export function startWebhook(
     } catch (err) {
       console.error("Capture API error:", err);
       res.status(500).json({ error: "Internal error" });
+    }
+  });
+
+  app.get("/feed", async (_req, res) => {
+    try {
+      const reviews = await queries.getRecentReviews(20);
+      const baseUrl = process.env.WEBHOOK_URL || `http://localhost:${port}`;
+      const xml = generateRssFeed(reviews, baseUrl);
+      res.type("application/rss+xml").send(xml);
+    } catch (err) {
+      console.error("Feed error:", err);
+      res.status(500).send("Feed generation failed");
     }
   });
 
