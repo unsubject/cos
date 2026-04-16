@@ -1,0 +1,8 @@
+name = "journal-email-capture"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+[vars]
+CAPTURE_API_URL = "https://your-app.railway.app"
+ALLOWED_SENDERS = "your-email@example.com"
+# CAPTURE_API_KEY is set via: npx wrangler secret put CAPTURE_API_KEY
