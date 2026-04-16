@@ -13,15 +13,17 @@ async function processOne(): Promise<boolean> {
   console.log(`[archive] Processing "${artifact.title}" (${artifact.id})...`);
 
   try {
-    // 1. Analyze: clean, summarize, tag
+    // 1. Normalize text programmatically (avoids re-asking Claude to copy it)
+    const cleanText = normalizeMarkdown(artifact.raw_source);
+
+    // 2. Analyze: summarize, tag (on cleaned text)
     const analysis = await analyzeArtifact(
       artifact.title,
-      artifact.raw_source,
+      cleanText,
       artifact.tags
     );
 
-    // 2. Chunk
-    const cleanText = analysis.clean_text || normalizeMarkdown(artifact.raw_source);
+    // 3. Chunk
     const chunks = chunkArtifact(cleanText);
 
     // 3. Embed chunks + summary
