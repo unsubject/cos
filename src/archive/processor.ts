@@ -145,6 +145,6 @@ export async function extractEntities(
   );
   if (!toolBlock) throw new Error("No tool use block in entity extraction");
 
-  const result = toolBlock.input as { entities: ExtractedEntity[] };
-  return result.entities;
+  const result = toolBlock.input as { entities?: ExtractedEntity[] };
+  return Array.isArray(result.entities) ? result.entities : [];
 }

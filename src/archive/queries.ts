@@ -67,11 +67,16 @@ export async function findPendingArtifact(): Promise<{
   tags: string[] | null;
 } | null> {
   const { rows } = await pool.query(
-    `SELECT id, raw_source, title, tags
-     FROM public_artifact
-     WHERE processing_status = 'pending'
-     ORDER BY created_at ASC
-     LIMIT 1`
+    `UPDATE public_artifact
+     SET processing_status = 'processing'
+     WHERE id = (
+       SELECT id FROM public_artifact
+       WHERE processing_status = 'pending'
+       ORDER BY created_at ASC
+       LIMIT 1
+       FOR UPDATE SKIP LOCKED
+     )
+     RETURNING id, raw_source, title, tags`
   );
   return rows[0] || null;
 }
@@ -437,7 +442,7 @@ export async function resetErroredArtifacts(): Promise<number> {
   const { rowCount } = await pool.query(
     `UPDATE public_artifact
      SET processing_status = 'pending'
-     WHERE processing_status = 'error'`
+     WHERE processing_status IN ('error', 'processing')`
   );
   return rowCount ?? 0;
 }
