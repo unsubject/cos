@@ -113,9 +113,14 @@ async function tick(): Promise<void> {
 
 export function startArchiveWorker(): void {
   console.log("Archive processor started (polling every 60s)");
-  const run = () => {
-    tick().catch((err) => console.error("[archive] Worker tick error:", err));
+  const scheduleNext = () => {
+    setTimeout(() => {
+      tick()
+        .catch((err) => console.error("[archive] Worker tick error:", err))
+        .finally(scheduleNext);
+    }, POLL_INTERVAL_MS);
   };
-  run();
-  setInterval(run, POLL_INTERVAL_MS);
+  tick()
+    .catch((err) => console.error("[archive] Worker tick error:", err))
+    .finally(scheduleNext);
 }
