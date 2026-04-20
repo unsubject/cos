@@ -52,6 +52,7 @@ export function createBot(token: string): Bot {
     const result = await handleMessage({
       userId: ctx.from.id.toString(),
       channel: "telegram",
+      chatId: ctx.chat.id.toString(),
       channelMessageId: ctx.message.message_id.toString(),
       rawText: ctx.message.text,
       receivedAt: new Date(ctx.message.date * 1000),
