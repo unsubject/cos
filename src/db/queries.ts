@@ -102,11 +102,6 @@ export async function findPendingEntry(
   stitchWindowMs: number
 ): Promise<{ id: string; full_text: string } | null> {
   const cutoff = new Date(Date.now() - stitchWindowMs);
-  // ORDER BY stitch_window_end (not created_at) so the query can use the
-  // partial index idx_journal_entry_processing on (processing_status,
-  // stitch_window_end) without a separate sort step. This is also more
-  // correct FIFO ordering: entries whose stitch window closed first are
-  // the ones ready to process first.
   const { rows } = await pool.query(
     `SELECT id, full_text
      FROM journal_entry
@@ -182,7 +177,8 @@ export async function markProcessingError(id: string): Promise<void> {
 
 export async function getEntriesForReview(
   days: number,
-  limit: number = 200
+  limit: number = 200,
+  scopes?: string[]
 ): Promise<
   {
     id: string;
@@ -198,15 +194,22 @@ export async function getEntriesForReview(
 > {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
+  const params: unknown[] = [cutoff, limit];
+  let scopeFilter = "";
+  if (scopes) {
+    params.push(scopes);
+    scopeFilter = `AND scope = ANY($${params.length})`;
+  }
   const { rows } = await pool.query(
     `SELECT id, full_text, summary, tags, primary_type,
             primary_type_confidence, suggested_actions, created_at, channel
      FROM journal_entry
      WHERE processing_status = 'processed'
        AND created_at > $1
+       ${scopeFilter}
      ORDER BY created_at DESC
      LIMIT $2`,
-    [cutoff, limit]
+    params
   );
   return rows;
 }
@@ -215,24 +218,26 @@ export async function saveReview(
   reviewDate: string,
   content: string,
   contentHtml: string,
-  entryCount: number
+  entryCount: number,
+  scope: "personal" | "family" = "personal"
 ): Promise<string> {
   const { rows } = await pool.query(
-    `INSERT INTO morning_review (review_date, content, content_html, entry_count)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (review_date) DO UPDATE
+    `INSERT INTO morning_review (review_date, content, content_html, entry_count, scope)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (review_date, scope) DO UPDATE
        SET content = EXCLUDED.content,
            content_html = EXCLUDED.content_html,
            entry_count = EXCLUDED.entry_count,
            created_at = now()
      RETURNING id`,
-    [reviewDate, content, contentHtml, entryCount]
+    [reviewDate, content, contentHtml, entryCount, scope]
   );
   return rows[0].id;
 }
 
 export async function getRecentReviews(
-  limit: number = 20
+  limit: number = 20,
+  scope: "personal" | "family" = "personal"
 ): Promise<
   {
     id: string;
@@ -245,15 +250,17 @@ export async function getRecentReviews(
   const { rows } = await pool.query(
     `SELECT id, review_date, content_html, entry_count, created_at
      FROM morning_review
+     WHERE scope = $1
      ORDER BY review_date DESC
-     LIMIT $1`,
-    [limit]
+     LIMIT $2`,
+    [scope, limit]
   );
   return rows;
 }
 
 export async function getTodayCalendarEvents(
-  timezone: string
+  timezone: string,
+  scopes?: string[]
 ): Promise<
   {
     id: string;
@@ -265,19 +272,29 @@ export async function getTodayCalendarEvents(
     attendees: unknown;
   }[]
 > {
+  const params: unknown[] = [timezone];
+  let scopeFilter = "";
+  if (scopes) {
+    params.push(scopes);
+    scopeFilter = `AND scope = ANY($${params.length})`;
+  }
   const { rows } = await pool.query(
     `SELECT id, title, description, start_at, end_at, location, attendees
      FROM calendar_event_ref
      WHERE user_id = 'default'
        AND (start_at AT TIME ZONE $1)::date =
            (now() AT TIME ZONE $1)::date
+       ${scopeFilter}
      ORDER BY start_at ASC`,
-    [timezone]
+    params
   );
   return rows;
 }
 
-export async function getOpenTasks(daysAhead: number = 7): Promise<
+export async function getOpenTasks(
+  daysAhead: number = 7,
+  scopes?: string[]
+): Promise<
   {
     id: string;
     title: string;
@@ -290,6 +307,12 @@ export async function getOpenTasks(daysAhead: number = 7): Promise<
 > {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + daysAhead);
+  const params: unknown[] = [cutoff];
+  let scopeFilter = "";
+  if (scopes) {
+    params.push(scopes);
+    scopeFilter = `AND t.scope = ANY($${params.length})`;
+  }
   const { rows } = await pool.query(
     `SELECT t.id, t.title, t.notes, t.due_at,
             p.name AS list_name, p.list_type,
@@ -300,16 +323,20 @@ export async function getOpenTasks(daysAhead: number = 7): Promise<
      WHERE t.user_id = 'default'
        AND t.status = 'needsAction'
        AND (t.due_at IS NULL OR t.due_at <= $1)
+       ${scopeFilter}
      ORDER BY
        CASE WHEN t.due_at IS NULL THEN 1 ELSE 0 END,
        t.due_at ASC
      LIMIT 40`,
-    [cutoff]
+    params
   );
   return rows;
 }
 
-export async function getStarredEmails(days: number = 30): Promise<
+export async function getStarredEmails(
+  days: number = 30,
+  scopes?: string[]
+): Promise<
   {
     id: string;
     subject: string | null;
@@ -320,20 +347,30 @@ export async function getStarredEmails(days: number = 30): Promise<
 > {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
+  const params: unknown[] = [cutoff];
+  let scopeFilter = "";
+  if (scopes) {
+    params.push(scopes);
+    scopeFilter = `AND scope = ANY($${params.length})`;
+  }
   const { rows } = await pool.query(
     `SELECT id, subject, from_address, snippet, sent_at
      FROM email_ref
      WHERE user_id = 'default'
        AND is_starred = true
        AND (sent_at IS NULL OR sent_at >= $1)
+       ${scopeFilter}
      ORDER BY sent_at DESC NULLS LAST
      LIMIT 15`,
-    [cutoff]
+    params
   );
   return rows;
 }
 
-export async function getLinksForRecentEntries(days: number = 7): Promise<
+export async function getLinksForRecentEntries(
+  days: number = 7,
+  scopes?: string[]
+): Promise<
   {
     link_type: string;
     confidence: number | null;
@@ -347,6 +384,22 @@ export async function getLinksForRecentEntries(days: number = 7): Promise<
 > {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
+  const params: unknown[] = [cutoff];
+  let sourceFilter = "";
+  let targetFilter = "";
+  if (scopes) {
+    params.push(scopes);
+    sourceFilter = `AND je.scope = ANY($${params.length})`;
+    params.push(scopes);
+    targetFilter = `AND (
+      CASE le.target_type
+        WHEN 'calendar_event_ref' THEN ce.scope
+        WHEN 'task_ref' THEN tr.scope
+        WHEN 'email_ref' THEN er.scope
+        ELSE 'personal'
+      END = ANY($${params.length})
+    )`;
+  }
   const { rows } = await pool.query(
     `SELECT le.link_type, le.confidence, le.explanation, le.target_type,
             CASE le.target_type
@@ -371,10 +424,12 @@ export async function getLinksForRecentEntries(days: number = 7): Promise<
      LEFT JOIN email_ref er ON le.target_type = 'email_ref' AND er.id = le.target_id
      LEFT JOIN person_ref pr ON le.target_type = 'person_ref' AND pr.id = le.target_id
      WHERE je.created_at >= $1
+       ${sourceFilter}
        AND (le.confidence IS NULL OR le.confidence >= 0.5)
+       ${targetFilter}
      ORDER BY le.confidence DESC NULLS LAST, le.created_at DESC
      LIMIT 25`,
-    [cutoff]
+    params
   );
   return rows;
 }
