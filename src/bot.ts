@@ -8,6 +8,7 @@ import { getAuthUrl, handleCallback } from "./google/auth";
 import { archiveRoutes } from "./archive/routes";
 import { ask, formatForTelegram } from "./archive/ask";
 import { insertTask } from "./google/tasks";
+import { handleSuggestionCallback } from "./taskSuggestionCallback";
 
 export function createBot(token: string): Bot {
   const bot = new Bot(token);
@@ -46,6 +47,12 @@ export function createBot(token: string): Bot {
       console.error("[bot] /task error:", err);
       await ctx.reply(`Couldn't add task: ${msg}`);
     }
+  });
+
+  bot.callbackQuery(/^suggest:(add|skip):(.+)$/, async (ctx) => {
+    const action = ctx.match![1] as "add" | "skip";
+    const id = ctx.match![2];
+    await handleSuggestionCallback(ctx, action, id);
   });
 
   bot.on("message:text", async (ctx) => {
