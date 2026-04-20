@@ -2,9 +2,27 @@ import { migrate } from "./db/migrate";
 import { createBot, startWebhook } from "./bot";
 import { createFamilyBot, startFamilyDraftSweeper } from "./familyBot";
 import { startWorker } from "./worker";
-import { startScheduler } from "./scheduler";
+import { startScheduler, startFamilyScheduler } from "./scheduler";
 import { startGoogleSync } from "./google/sync";
 import { startArchiveWorker } from "./archive/worker";
+
+const TELEGRAM_MAX_CHARS = 3900;
+
+function splitForTelegram(text: string, maxChars = TELEGRAM_MAX_CHARS): string[] {
+  if (text.length <= maxChars) return [text];
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(i + maxChars, text.length);
+    if (end < text.length) {
+      const nl = text.lastIndexOf("\n", end);
+      if (nl > i + Math.floor(maxChars / 2)) end = nl;
+    }
+    chunks.push(text.slice(i, end));
+    i = end;
+  }
+  return chunks;
+}
 
 async function main() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -66,8 +84,13 @@ async function main() {
   startGoogleSync();
   startArchiveWorker();
 
-  if (familyBot) {
+  if (familyBot && familyGroupChatId) {
     startFamilyDraftSweeper();
+    startFamilyScheduler(async (content) => {
+      for (const chunk of splitForTelegram(content)) {
+        await familyBot!.api.sendMessage(familyGroupChatId, chunk);
+      }
+    });
   }
 }
 
