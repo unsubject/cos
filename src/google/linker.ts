@@ -1,3 +1,18 @@
+// Journal-entry link generation: finds candidate matches across Google
+// integrations (contacts, calendar, tasks, email) and the public artifact
+// archive, writes one row per match to link_edge.
+//
+// Scope-aware visibility invariant:
+//   Generation here is intentionally scope-agnostic. For a family-scope
+//   source entry we still look at personal-scope candidates, and vice
+//   versa. The link_edge row is written regardless of target scope.
+//
+//   Reader-side visibility is enforced in src/db/queries.ts →
+//   getLinksForRecentEntries, which filters both source scope (via
+//   journal_entry.scope) and target scope (resolved per target_type).
+//   Family readers never see a link whose target is in personal scope —
+//   the title would leak. Personal readers see everything via spillover.
+
 import { pool } from "../db/client";
 
 interface LinkableEntry {
@@ -105,7 +120,7 @@ async function linkNearbyCalendarEvents(
   dayEnd.setHours(23, 59, 59, 999);
 
   const { rows: events } = await pool.query(
-    `SELECT id, title, location FROM calendar_event_ref
+    `SELECT id, title, location, scope FROM calendar_event_ref
      WHERE user_id = 'default'
        AND start_at >= $1 AND start_at <= $2`,
     [dayStart, dayEnd]
@@ -322,7 +337,20 @@ export async function generateLinks(entry: LinkableEntry): Promise<void> {
       linkRelatedEmails(entry),
       linkRelatedArtifacts(entry),
     ]);
-    await insertLinks(results.flat());
+    const links = results.flat();
+    await insertLinks(links);
+    if (links.length > 0) {
+      const byType: Record<string, number> = {};
+      for (const l of links) {
+        byType[l.targetType] = (byType[l.targetType] || 0) + 1;
+      }
+      const breakdown = Object.entries(byType)
+        .map(([t, n]) => `${t}=${n}`)
+        .join(", ");
+      console.log(
+        `[linker] entry ${entry.id}: ${links.length} link(s) written (${breakdown})`
+      );
+    }
   } catch (err) {
     // Link generation is non-critical — log and continue
     console.error(`Link generation error for entry ${entry.id}:`, err);
