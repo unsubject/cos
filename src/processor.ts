@@ -1,6 +1,6 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
-const anthropic = new Anthropic();
+const openai = new OpenAI();
 
 export interface ProcessingResult {
   clean_text: string;
@@ -22,12 +22,12 @@ interface SuggestedAction {
   confidence: number;
 }
 
-const PROCESSING_TOOL: Anthropic.Tool = {
+const PROCESSING_SCHEMA = {
   name: "save_processing_result",
-  description:
-    "Save the structured analysis result for a journal entry.",
-  input_schema: {
-    type: "object" as const,
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
     properties: {
       clean_text: {
         type: "string",
@@ -68,6 +68,7 @@ const PROCESSING_TOOL: Anthropic.Tool = {
         type: "array",
         items: {
           type: "object",
+          additionalProperties: false,
           properties: {
             kind: {
               type: "string",
@@ -100,7 +101,7 @@ const PROCESSING_TOOL: Anthropic.Tool = {
       "suggested_actions",
     ],
   },
-};
+} as const;
 
 const SYSTEM_PROMPT = `You are a background processor for a private journal system. You analyze raw streams of consciousness captured from a messaging app.
 
@@ -117,27 +118,26 @@ The journal owner uses this system to offload fragmented thoughts. Respect the r
 export async function processEntry(
   fullText: string
 ): Promise<ProcessingResult> {
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.4-nano",
+    max_completion_tokens: 1024,
     messages: [
+      { role: "system", content: SYSTEM_PROMPT },
       {
         role: "user",
         content: `Analyze this journal entry:\n\n${fullText}`,
       },
     ],
-    tools: [PROCESSING_TOOL],
-    tool_choice: { type: "tool", name: "save_processing_result" },
+    response_format: {
+      type: "json_schema",
+      json_schema: PROCESSING_SCHEMA,
+    },
   });
 
-  const toolBlock = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-
-  if (!toolBlock) {
-    throw new Error("No tool use block in response");
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content in processing response");
   }
 
-  return toolBlock.input as ProcessingResult;
+  return JSON.parse(content) as ProcessingResult;
 }

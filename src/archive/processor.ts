@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
 // maxRetries: SDK respects Retry-After on 429, this gives headroom when the
 // archive worker bursts against the per-minute output-token cap.
-const anthropic = new Anthropic({ maxRetries: 6 });
+const openai = new OpenAI({ maxRetries: 6 });
 
 export interface ArtifactProcessingResult {
   summary: string;
@@ -18,11 +18,12 @@ export interface ExtractedEntity {
   salience: number;
 }
 
-const SUMMARIZE_TOOL: Anthropic.Tool = {
+const SUMMARIZE_SCHEMA = {
   name: "save_artifact_analysis",
-  description: "Save the structured analysis of a published article.",
-  input_schema: {
-    type: "object" as const,
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
     properties: {
       summary: {
         type: "string",
@@ -47,18 +48,20 @@ const SUMMARIZE_TOOL: Anthropic.Tool = {
     },
     required: ["summary", "excerpt", "tags", "language"],
   },
-};
+} as const;
 
-const ENTITY_TOOL: Anthropic.Tool = {
+const ENTITY_SCHEMA = {
   name: "save_extracted_entities",
-  description: "Save the named entities extracted from a published article.",
-  input_schema: {
-    type: "object" as const,
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
     properties: {
       entities: {
         type: "array",
         items: {
           type: "object",
+          additionalProperties: false,
           properties: {
             entity_type: {
               type: "string",
@@ -87,7 +90,7 @@ const ENTITY_TOOL: Anthropic.Tool = {
     },
     required: ["entities"],
   },
-};
+} as const;
 
 export async function analyzeArtifact(
   title: string,
@@ -98,61 +101,67 @@ export async function analyzeArtifact(
     ? `\nExisting tags from source: ${existingTags.join(", ")}. Keep relevant ones and add more.`
     : "";
 
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    system:
-      "You are a background processor for a private knowledge base of published articles. Analyze each article to extract structured metadata. Be precise — summaries should capture the core argument, not just restate the title. Tags should be specific and useful for retrieval.",
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.4-nano",
+    max_completion_tokens: 1024,
     messages: [
+      {
+        role: "system",
+        content:
+          "You are a background processor for a private knowledge base of published articles. Analyze each article to extract structured metadata. Be precise — summaries should capture the core argument, not just restate the title. Tags should be specific and useful for retrieval.",
+      },
       {
         role: "user",
         content: `Analyze this published article:\n\nTitle: ${title}${tagHint}\n\n${rawSource.slice(0, 12000)}`,
       },
     ],
-    tools: [SUMMARIZE_TOOL],
-    tool_choice: { type: "tool", name: "save_artifact_analysis" },
+    response_format: {
+      type: "json_schema",
+      json_schema: SUMMARIZE_SCHEMA,
+    },
   });
 
   console.log(
-    `[archive] analyze tokens: in=${response.usage.input_tokens} out=${response.usage.output_tokens}`
+    `[archive] analyze tokens: in=${response.usage?.prompt_tokens} out=${response.usage?.completion_tokens}`
   );
 
-  const toolBlock = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-  if (!toolBlock) throw new Error("No tool use block in artifact analysis");
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error("No content in artifact analysis");
 
-  return toolBlock.input as ArtifactProcessingResult;
+  return JSON.parse(content) as ArtifactProcessingResult;
 }
 
 export async function extractEntities(
   title: string,
   cleanText: string
 ): Promise<ExtractedEntity[]> {
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 2048,
-    system:
-      "You extract named entities from published articles. Focus on people, organizations, key concepts/ideas, referenced works (books, papers, articles), and places that are meaningfully discussed — not just mentioned in passing.",
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.4-nano",
+    max_completion_tokens: 2048,
     messages: [
+      {
+        role: "system",
+        content:
+          "You extract named entities from published articles. Focus on people, organizations, key concepts/ideas, referenced works (books, papers, articles), and places that are meaningfully discussed — not just mentioned in passing.",
+      },
       {
         role: "user",
         content: `Extract named entities from this article:\n\nTitle: ${title}\n\n${cleanText.slice(0, 10000)}`,
       },
     ],
-    tools: [ENTITY_TOOL],
-    tool_choice: { type: "tool", name: "save_extracted_entities" },
+    response_format: {
+      type: "json_schema",
+      json_schema: ENTITY_SCHEMA,
+    },
   });
 
   console.log(
-    `[archive] entities tokens: in=${response.usage.input_tokens} out=${response.usage.output_tokens}`
+    `[archive] entities tokens: in=${response.usage?.prompt_tokens} out=${response.usage?.completion_tokens}`
   );
 
-  const toolBlock = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-  if (!toolBlock) throw new Error("No tool use block in entity extraction");
+  const content = response.choices[0]?.message?.content;
+  if (!content) throw new Error("No content in entity extraction");
 
-  const result = toolBlock.input as { entities?: ExtractedEntity[] };
+  const result = JSON.parse(content) as { entities?: ExtractedEntity[] };
   return Array.isArray(result.entities) ? result.entities : [];
 }
