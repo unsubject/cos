@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { hybridSearch, SearchResult } from "./search";
 
-const anthropic = new Anthropic({ maxRetries: 6 });
+const openai = new OpenAI({ maxRetries: 6 });
 
 export interface AskResponse {
   answer: string;
@@ -28,12 +28,15 @@ export async function ask(query: string): Promise<AskResponse> {
     })
     .join("\n\n---\n\n");
 
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1024,
-    system:
-      "You are answering questions about the user's own published writing using retrieved excerpts from their archive. Be concise (≤4 short paragraphs). Quote or paraphrase specific points from the excerpts. Cite sources inline as [1], [2], etc. matching the numbered excerpts. If the excerpts don't actually answer the question, say so directly — do not pad. Answer in the same language as the query.",
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.4-nano",
+    max_completion_tokens: 1024,
     messages: [
+      {
+        role: "system",
+        content:
+          "You are answering questions about the user's own published writing using retrieved excerpts from their archive. Be concise (≤4 short paragraphs). Quote or paraphrase specific points from the excerpts. Cite sources inline as [1], [2], etc. matching the numbered excerpts. If the excerpts don't actually answer the question, say so directly — do not pad. Answer in the same language as the query.",
+      },
       {
         role: "user",
         content: `Question: ${query}\n\nRetrieved excerpts from the archive:\n\n${context}`,
@@ -41,10 +44,8 @@ export async function ask(query: string): Promise<AskResponse> {
     ],
   });
 
-  const textBlock = response.content.find(
-    (b): b is Anthropic.TextBlock => b.type === "text"
-  );
-  const answer = textBlock?.text ?? "No answer generated.";
+  const answer =
+    response.choices[0]?.message?.content ?? "No answer generated.";
 
   const sources = dedupeSources(results).slice(0, 5);
 

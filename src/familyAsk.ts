@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { generateEmbedding } from "./embeddings";
 import * as fq from "./db/familyQueries";
 
-const anthropic = new Anthropic();
+const openai = new OpenAI();
 
 const SYSTEM_PROMPT = `You answer questions using the user's private family archive.
 
@@ -85,15 +85,17 @@ ${blocks.join("\n\n")}
 
 Answer the question, citing the excerpts.`;
 
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 1500,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userMessage }],
+  const response = await openai.chat.completions.create({
+    model: "gpt-5.4-nano",
+    max_completion_tokens: 1500,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
   });
 
-  const textBlock = response.content.find(
-    (block): block is Anthropic.TextBlock => block.type === "text"
+  return (
+    response.choices[0]?.message?.content ||
+    "Sorry, couldn't synthesize an answer."
   );
-  return textBlock?.text || "Sorry, couldn't synthesize an answer.";
 }

@@ -267,7 +267,7 @@ ${entries.length === 0 ? "(no journal entries this week)" : formatEntriesForProm
 Generate the morning review.`;
 
   const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-sonnet-4-6",
     max_tokens: 3072,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: userMessage }],
