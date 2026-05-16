@@ -50,7 +50,9 @@ export async function searchBrainHandler(
         similarity: number;
       }>
     >`
-      SELECT id, summary, clean_text, tags, primary_type, created_at,
+      SELECT id, summary, clean_text,
+             to_jsonb(tags) AS tags,
+             primary_type, created_at,
              1 - (embedding <=> ${v}::vector) AS similarity
       FROM journal_entry
       WHERE processing_status = 'processed'
@@ -69,7 +71,7 @@ export async function searchBrainHandler(
       similarity: roundTo(Number(r.similarity), 4),
       created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
       primary_type: r.primary_type,
-      tags: r.tags ?? [],
+      tags: Array.isArray(r.tags) ? r.tags : [],
       summary: r.summary,
       preview: r.clean_text ? r.clean_text.slice(0, 400) : null,
     }));
