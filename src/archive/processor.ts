@@ -157,14 +157,15 @@ export async function extractEntities(
     },
   });
 
+  const choice = response.choices[0];
+
   console.log(
-    `[archive] entities tokens: in=${response.usage?.prompt_tokens} out=${response.usage?.completion_tokens}`
+    `[archive] entities tokens: in=${response.usage?.prompt_tokens} out=${response.usage?.completion_tokens} finish=${choice?.finish_reason}`
   );
 
-  const choice = response.choices[0];
   if (choice?.finish_reason === "length") {
     throw new Error(
-      `Entity extraction truncated at token cap (${ENTITY_MAX_TOKENS})`
+      `Entity extraction truncated: in=${response.usage?.prompt_tokens} out=${response.usage?.completion_tokens} cap=${ENTITY_MAX_TOKENS}`
     );
   }
 
