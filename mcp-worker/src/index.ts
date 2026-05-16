@@ -1,11 +1,8 @@
 import postgres from 'postgres';
+import type { Env } from './env';
+import { handleMcpRequest } from './mcp';
 
-export interface Env {
-  HYPERDRIVE: Hyperdrive;
-  BRAIN_MCP_TOKEN: string;
-  OPENAI_API_KEY: string;
-  BRAIN_USER_ID: string;
-}
+export type { Env };
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -25,6 +22,10 @@ export default {
       } finally {
         ctx.waitUntil(sql.end({ timeout: 5 }));
       }
+    }
+
+    if (url.pathname === '/mcp') {
+      return handleMcpRequest(request, env, ctx);
     }
 
     return new Response('not found', { status: 404 });
