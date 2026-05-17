@@ -48,6 +48,15 @@ export async function upsertArtifact(params: {
              WHEN public_artifact.raw_source = EXCLUDED.raw_source
              THEN public_artifact.processing_status
              ELSE 'pending'
+           END,
+           -- Mirror processing_status: when the row is re-queued because
+           -- raw_source changed, clear the stale error text. Otherwise
+           -- leave it as-is (preserves the current error while the row
+           -- sits in 'error', and a no-op for 'processed' / 'pending').
+           last_error = CASE
+             WHEN public_artifact.raw_source = EXCLUDED.raw_source
+             THEN public_artifact.last_error
+             ELSE NULL
            END
      RETURNING id,
        (xmax = 0) AS created`,
